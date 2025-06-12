@@ -9,10 +9,15 @@ class Transaction extends Model
 {
     use HasFactory;
 
+    const TYPE_INCOME = 'income';
+    const TYPE_EXPENSE = 'expense';
+    const TYPE_SAVINGS = 'savings';
+    const CATEGORY_UNEXPECTED = 'tak terduga';
+
     protected $fillable = [
         'user_id',
         'category',
-        'type', // pemasukan atau pengeluaran
+        'type',
         'amount',
         'description',
         'date',

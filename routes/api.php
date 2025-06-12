@@ -11,7 +11,8 @@ Route::get('/user', function (Request $request) {
 
 Route::prefix('v1')->group(function () {
     Route::prefix('transactions')->group(function () {
-        Route::get('/evaluation', [TransactionController::class, 'evaluation']); // Pindahkan ke atas
+        Route::get('/evaluation', [TransactionController::class, 'evaluation']);
+        Route::get('/monthly', [TransactionController::class, 'monthly']);
         Route::get('/', [TransactionController::class, 'index']);
         Route::post('/', [TransactionController::class, 'store']);
         Route::get('/{id}', [TransactionController::class, 'show']);

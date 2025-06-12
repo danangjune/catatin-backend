@@ -3,9 +3,12 @@
 namespace App\Http\Controllers\Api;
 
 use App\Models\Transaction;
+use App\Models\Saving;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
 
 class TransactionController extends Controller
@@ -94,6 +97,36 @@ class TransactionController extends Controller
         }
     }
 
+    public function monthly(Request $request)
+    {
+        try {
+            $month = $request->query('month', now()->format('Y-m'));
+            $startDate = Carbon::createFromFormat('Y-m', $month)->startOfMonth();
+            $endDate = $startDate->copy()->endOfMonth();
+
+            $transactions = Transaction::where('user_id', 1)
+                ->whereBetween('date', [$startDate, $endDate])
+                ->orderBy('date', 'desc')
+                ->get();
+
+            return response()->json([
+                'status' => 'success',
+                'data' => $transactions,
+                'period' => [
+                    'start' => $startDate->toDateString(),
+                    'end' => $endDate->toDateString(),
+                    'month' => $month
+                ]
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to fetch monthly transactions',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
     public function update(Request $request, $id)
     {
         try {
@@ -144,47 +177,94 @@ class TransactionController extends Controller
             $startDate = Carbon::createFromFormat('Y-m', $month)->startOfMonth();
             $endDate = $startDate->copy()->endOfMonth();
 
-            // Get all transactions for the month
-            $transactions = Transaction::where('user_id', 1)
+            // 1. Get total income and expense
+            $income = Transaction::where('user_id', 1)
+                ->where('type', 'income')
                 ->whereBetween('date', [$startDate, $endDate])
-                ->get();
-
-            // Calculate metrics
-            $totalIncome = $transactions->where('type', 'income')->sum('amount');
-            $totalExpense = $transactions->where('type', 'expense')->sum('amount');
-
-            // Count weeks with savings transactions
-            $savingWeeks = $transactions
-                ->where('type', 'savings')
-                ->groupBy(function ($date) {
-                    return Carbon::parse($date->date)->week;
-                })
-                ->count();
-
-            // Count unexpected expenses
-            $unexpectedExpense = $transactions
-                ->where('type', 'expense')
-                ->where('category', 'unexpected')
                 ->sum('amount');
 
-            // Count days with records
-            $recordDays = $transactions
-                ->groupBy(function ($date) {
-                    return Carbon::parse($date->date)->format('Y-m-d');
-                })
-                ->count();
+            $expense = Transaction::where('user_id', 1)
+                ->where('type', 'expense')
+                ->whereBetween('date', [$startDate, $endDate])
+                ->sum('amount');
+
+            // 2. Get savings data for the month
+            $saving = Saving::where('user_id', 1)
+                ->where('month', $startDate->toDateString())
+                ->first();
+
+            // Calculate saving metrics
+            $savingConsistency = 0;
+            $savingPercentage = 0;
+            if ($saving) {
+                // Check weekly savings by looking at saved_amount changes
+                $weeklySavings = DB::table('savings')
+                    ->where('user_id', 1)
+                    ->where('month', $startDate->toDateString())
+                    ->whereRaw('saved_amount > 0')
+                    ->count();
+
+                $savingConsistency = $weeklySavings;
+
+                // Calculate saving percentage against income
+                $savingPercentage = $income > 0 ? ($saving->saved_amount / $income) * 100 : 0;
+            }
+
+            // 3. Get unexpected expenses
+            $unexpectedExpense = Transaction::where('user_id', 1)
+                ->where('type', 'expense')
+                ->where('category', 'tak terduga')
+                ->whereBetween('date', [$startDate, $endDate])
+                ->sum('amount');
+
+            // 4. Count unique days with records
+            $recordDays = Transaction::where('user_id', 1)
+                ->whereBetween('date', [$startDate, $endDate])
+                ->distinct('date')
+                ->count('date');
+
+            // 5. Get category breakdown
+            $categoryBreakdown = Transaction::where('user_id', 1)
+                ->where('type', 'expense')
+                ->whereBetween('date', [$startDate, $endDate])
+                ->select('category', DB::raw('SUM(amount) as total'))
+                ->groupBy('category')
+                ->get()
+                ->mapWithKeys(function ($item) use ($expense) {
+                    return [
+                        $item->category => [
+                            'amount' => (float)$item->total,
+                            'percentage' => $expense > 0 ? ((float)$item->total / $expense) * 100 : 0
+                        ]
+                    ];
+                });
 
             return response()->json([
                 'status' => 'success',
                 'data' => [
-                    'total_income' => $totalIncome,
-                    'total_expense' => $totalExpense,
-                    'saving_consistency' => $savingWeeks,
-                    'unexpected_expense' => $unexpectedExpense,
-                    'record_days' => $recordDays
+                    'total_income' => (float)$income,
+                    'total_expense' => (float)$expense,
+                    'saving_consistency' => (int)$savingConsistency,
+                    'unexpected_expense' => (float)$unexpectedExpense,
+                    'record_days' => (int)$recordDays,
+                    'saving_percentage' => (float)$savingPercentage,
+                    'saving_info' => $saving ? [
+                        'target_amount' => (float)$saving->target_amount,
+                        'saved_amount' => (float)$saving->saved_amount,
+                        'progress' => $saving->target_amount > 0
+                            ? ($saving->saved_amount / $saving->target_amount) * 100
+                            : 0
+                    ] : null,
+                    'category_breakdown' => $categoryBreakdown,
+                    'month_info' => [
+                        'start_date' => $startDate->toDateString(),
+                        'end_date' => $endDate->toDateString(),
+                        'total_days' => $endDate->diffInDays($startDate) + 1
+                    ]
                 ]
             ]);
         } catch (\Exception $e) {
+            Log::error('Evaluation error: ' . $e->getMessage());
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to calculate evaluation metrics',
