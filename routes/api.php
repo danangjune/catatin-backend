@@ -5,6 +5,9 @@ use App\Http\Controllers\Api\SavingController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
+// Ensure UserController exists and is imported
+use App\Http\Controllers\UserController;
+
 Route::get('/user', function (Request $request) {
     return $request->user();
 })->middleware('auth:sanctum');
@@ -26,4 +29,6 @@ Route::prefix('v1')->group(function () {
         Route::post('/', [SavingController::class, 'store']);
         Route::patch('/{id}', [SavingController::class, 'update']);
     });
+
+    Route::get('/user/profile', [UserController::class, 'profile']);
 });
