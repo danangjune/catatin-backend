@@ -13,10 +13,12 @@ use Carbon\Carbon;
 
 class TransactionController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
+        $userId = $request->user()->id;
+
         try {
-            $transactions = Transaction::where('user_id', 1)
+            $transactions = Transaction::where('user_id', $userId)
                 ->orderBy('date', 'desc')
                 ->get();
 
@@ -34,6 +36,8 @@ class TransactionController extends Controller
 
     public function store(Request $request)
     {
+        $userId = $request->user()->id;
+
         $validator = Validator::make($request->all(), [
             'type' => 'required|in:income,expense',
             'category' => 'required|string|max:100',
@@ -52,7 +56,7 @@ class TransactionController extends Controller
 
         try {
             $transaction = Transaction::create([
-                'user_id' => 1, // Later replace with auth()->id()
+                'user_id' => $userId,
                 'type' => $request->type,
                 'category' => $request->category,
                 'amount' => $request->amount,
@@ -73,10 +77,12 @@ class TransactionController extends Controller
         }
     }
 
-    public function show($id)
+    public function show(Request $request, $id)
     {
+        $userId = $request->user()->id;
+
         try {
-            $transaction = Transaction::where('user_id', 1)->find($id);
+            $transaction = Transaction::where('user_id', $userId)->find($id);
 
             if (!$transaction) {
                 return response()->json([
@@ -99,12 +105,14 @@ class TransactionController extends Controller
 
     public function monthly(Request $request)
     {
+        $userId = $request->user()->id;
+
         try {
             $month = $request->query('month', now()->format('Y-m'));
             $startDate = Carbon::createFromFormat('Y-m', $month)->startOfMonth();
             $endDate = $startDate->copy()->endOfMonth();
 
-            $transactions = Transaction::where('user_id', 1)
+            $transactions = Transaction::where('user_id', $userId)
                 ->whereBetween('date', [$startDate, $endDate])
                 ->orderBy('date', 'desc')
                 ->get();
@@ -129,8 +137,10 @@ class TransactionController extends Controller
 
     public function update(Request $request, $id)
     {
+        $userId = $request->user()->id;
+
         try {
-            $transaction = Transaction::where('user_id', 1)->find($id);
+            $transaction = Transaction::where('user_id', $userId)->find($id);
 
             if (!$transaction) {
                 return response()->json([
@@ -172,59 +182,53 @@ class TransactionController extends Controller
 
     public function evaluation(Request $request)
     {
+        $userId = $request->user()->id;
+
         try {
             $month = $request->query('month');
             $startDate = Carbon::createFromFormat('Y-m', $month)->startOfMonth();
             $endDate = $startDate->copy()->endOfMonth();
 
-            // 1. Get total income and expense
-            $income = Transaction::where('user_id', 1)
+            $income = Transaction::where('user_id', $userId)
                 ->where('type', 'income')
                 ->whereBetween('date', [$startDate, $endDate])
                 ->sum('amount');
 
-            $expense = Transaction::where('user_id', 1)
+            $expense = Transaction::where('user_id', $userId)
                 ->where('type', 'expense')
                 ->whereBetween('date', [$startDate, $endDate])
                 ->sum('amount');
 
-            // 2. Get savings data for the month
-            $saving = Saving::where('user_id', 1)
+            $saving = Saving::where('user_id', $userId)
                 ->where('month', $startDate->toDateString())
                 ->first();
 
-            // Calculate saving metrics
             $savingConsistency = 0;
             $savingPercentage = 0;
+
             if ($saving) {
-                // Check weekly savings by looking at saved_amount changes
                 $weeklySavings = DB::table('savings')
-                    ->where('user_id', 1)
+                    ->where('user_id', $userId)
                     ->where('month', $startDate->toDateString())
                     ->whereRaw('saved_amount > 0')
                     ->count();
 
                 $savingConsistency = $weeklySavings;
-
-                // Calculate saving percentage against income
                 $savingPercentage = $income > 0 ? ($saving->saved_amount / $income) * 100 : 0;
             }
 
-            // 3. Get unexpected expenses
-            $unexpectedExpense = Transaction::where('user_id', 1)
+            $unexpectedExpense = Transaction::where('user_id', $userId)
                 ->where('type', 'expense')
                 ->where('category', 'tak terduga')
                 ->whereBetween('date', [$startDate, $endDate])
                 ->sum('amount');
 
-            // 4. Count unique days with records
-            $recordDays = Transaction::where('user_id', 1)
+            $recordDays = Transaction::where('user_id', $userId)
                 ->whereBetween('date', [$startDate, $endDate])
                 ->distinct('date')
                 ->count('date');
 
-            // 5. Get category breakdown
-            $categoryBreakdown = Transaction::where('user_id', 1)
+            $categoryBreakdown = Transaction::where('user_id', $userId)
                 ->where('type', 'expense')
                 ->whereBetween('date', [$startDate, $endDate])
                 ->select('category', DB::raw('SUM(amount) as total'))
@@ -265,6 +269,7 @@ class TransactionController extends Controller
             ]);
         } catch (\Exception $e) {
             Log::error('Evaluation error: ' . $e->getMessage());
+
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to calculate evaluation metrics',
@@ -273,10 +278,12 @@ class TransactionController extends Controller
         }
     }
 
-    public function destroy($id)
+    public function destroy(Request $request, $id)
     {
+        $userId = $request->user()->id;
+
         try {
-            $transaction = Transaction::where('user_id', 1)->find($id);
+            $transaction = Transaction::where('user_id', $userId)->find($id);
 
             if (!$transaction) {
                 return response()->json([

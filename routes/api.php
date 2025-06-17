@@ -2,17 +2,20 @@
 
 use App\Http\Controllers\Api\TransactionController;
 use App\Http\Controllers\Api\SavingController;
+use App\Http\Controllers\Api\AuthController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
-
-// Ensure UserController exists and is imported
 use App\Http\Controllers\UserController;
 
-Route::get('/user', function (Request $request) {
+Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
     return $request->user();
-})->middleware('auth:sanctum');
+});
 
-Route::prefix('v1')->group(function () {
+Route::post('/login', [AuthController::class, 'login']);
+Route::post('/register', [AuthController::class, 'register']);
+Route::middleware('auth:sanctum')->post('/logout', [AuthController::class, 'logout']);
+
+Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
     Route::prefix('transactions')->group(function () {
         Route::get('/evaluation', [TransactionController::class, 'evaluation']);
         Route::get('/monthly', [TransactionController::class, 'monthly']);

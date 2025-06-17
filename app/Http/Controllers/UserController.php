@@ -10,11 +10,11 @@ use Carbon\Carbon;
 
 class UserController extends Controller
 {
-    public function profile()
+    public function profile(Request $request)
     {
         try {
-            $user = User::first();
-            $now = Carbon::now();
+            $user = $request->user(); // atau auth()->user()
+            $now = now();
 
             $monthlyStats = [
                 'income' => Transaction::where('user_id', $user->id)
@@ -29,7 +29,6 @@ class UserController extends Controller
                     ->where('type', 'expense')
                     ->sum('amount'),
 
-                // Fixed: Using whereYear and whereMonth for proper date comparison
                 'savings' => Saving::where('user_id', $user->id)
                     ->whereYear('month', $now->year)
                     ->whereMonth('month', $now->month)

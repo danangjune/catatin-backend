@@ -8,9 +8,13 @@ use Illuminate\Http\Request;
 
 class SavingController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
-        $savings = Saving::where('user_id', 1)->orderBy('month', 'desc')->get();
+        $userId = $request->user()->id;
+        $savings = Saving::where('user_id', $userId)
+            ->orderBy('month', 'desc')
+            ->get();
+
         return response()->json($savings);
     }
 
@@ -22,7 +26,7 @@ class SavingController extends Controller
             'month' => 'required|date',
         ]);
 
-        $data['user_id'] = 1;
+        $data['user_id'] = $request->user()->id;
 
         $saving = Saving::create($data);
         return response()->json($saving, 201);
@@ -30,8 +34,10 @@ class SavingController extends Controller
 
     public function showByMonth(Request $request)
     {
+        $userId = $request->user()->id;
         $month = $request->query('month') ?? now()->startOfMonth()->toDateString();
-        $saving = Saving::where('user_id', 1)
+
+        $saving = Saving::where('user_id', $userId)
             ->where('month', $month)
             ->first();
 
@@ -45,8 +51,10 @@ class SavingController extends Controller
     public function update(Request $request, $id)
     {
         try {
+            $userId = $request->user()->id;
+
             $saving = Saving::where('id', $id)
-                ->where('user_id', 1)
+                ->where('user_id', $userId)
                 ->firstOrFail();
 
             $validated = $request->validate([
@@ -69,6 +77,4 @@ class SavingController extends Controller
             return response()->json(['error' => 'Saving not found'], 404);
         }
     }
-
-    // update, delete, show bisa ditambahkan jika perlu
 }
