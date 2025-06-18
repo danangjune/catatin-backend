@@ -13,18 +13,30 @@ use Carbon\Carbon;
 
 class TransactionController extends Controller
 {
+    // ✨ Reusable: Ambil transaksi user (opsional dengan rentang tanggal)
+    private function fetchUserTransactions($userId, $startDate = null, $endDate = null)
+    {
+        $query = Transaction::where('user_id', $userId)
+            ->orderBy('date', 'desc')
+            ->orderBy('id', 'desc');
+
+        if ($startDate && $endDate) {
+            $query->whereBetween('date', [$startDate, $endDate]);
+        }
+
+        return $query->get();
+    }
+
     public function index(Request $request)
     {
         $userId = $request->user()->id;
 
         try {
-            $transactions = Transaction::where('user_id', $userId)
-                ->orderBy('date', 'desc')
-                ->get();
+            $transactions = $this->fetchUserTransactions($userId);
 
             return response()->json([
                 'status' => 'success',
-                'data' => $transactions
+                'data' => $transactions->map(fn($t) => $this->transformTransaction($t))
             ]);
         } catch (\Exception $e) {
             return response()->json([
@@ -43,7 +55,7 @@ class TransactionController extends Controller
             'category' => 'required|string|max:100',
             'amount' => 'required|numeric|min:0',
             'description' => 'nullable|string|max:255',
-            'date' => 'required|date',
+            'date' => 'required|date_format:Y-m-d',
         ]);
 
         if ($validator->fails()) {
@@ -59,7 +71,7 @@ class TransactionController extends Controller
                 'user_id' => $userId,
                 'type' => $request->type,
                 'category' => $request->category,
-                'amount' => $request->amount,
+                'amount' => (float)$request->amount,
                 'description' => $request->description,
                 'date' => $request->date,
             ]);
@@ -67,7 +79,7 @@ class TransactionController extends Controller
             return response()->json([
                 'status' => 'success',
                 'message' => 'Transaction created successfully',
-                'data' => $transaction
+                'data' => $this->transformTransaction($transaction)
             ], 201);
         } catch (\Exception $e) {
             return response()->json([
@@ -82,7 +94,7 @@ class TransactionController extends Controller
         $userId = $request->user()->id;
 
         try {
-            $transaction = Transaction::where('user_id', $userId)->find($id);
+            $transaction = Transaction::where('user_id', $userId)->where('id', $id)->first();
 
             if (!$transaction) {
                 return response()->json([
@@ -93,7 +105,7 @@ class TransactionController extends Controller
 
             return response()->json([
                 'status' => 'success',
-                'data' => $transaction
+                'data' => $this->transformTransaction($transaction)
             ]);
         } catch (\Exception $e) {
             return response()->json([
@@ -112,14 +124,11 @@ class TransactionController extends Controller
             $startDate = Carbon::createFromFormat('Y-m', $month)->startOfMonth();
             $endDate = $startDate->copy()->endOfMonth();
 
-            $transactions = Transaction::where('user_id', $userId)
-                ->whereBetween('date', [$startDate, $endDate])
-                ->orderBy('date', 'desc')
-                ->get();
+            $transactions = $this->fetchUserTransactions($userId, $startDate, $endDate);
 
             return response()->json([
                 'status' => 'success',
-                'data' => $transactions,
+                'data' => $transactions->map(fn($t) => $this->transformTransaction($t)),
                 'period' => [
                     'start' => $startDate->toDateString(),
                     'end' => $endDate->toDateString(),
@@ -140,7 +149,7 @@ class TransactionController extends Controller
         $userId = $request->user()->id;
 
         try {
-            $transaction = Transaction::where('user_id', $userId)->find($id);
+            $transaction = Transaction::where('user_id', $userId)->where('id', $id)->first();
 
             if (!$transaction) {
                 return response()->json([
@@ -154,7 +163,7 @@ class TransactionController extends Controller
                 'category' => 'sometimes|required|string|max:100',
                 'amount' => 'sometimes|required|numeric|min:0',
                 'description' => 'nullable|string|max:255',
-                'date' => 'sometimes|required|date',
+                'date' => 'sometimes|required|date_format:Y-m-d',
             ]);
 
             if ($validator->fails()) {
@@ -170,7 +179,7 @@ class TransactionController extends Controller
             return response()->json([
                 'status' => 'success',
                 'message' => 'Transaction updated successfully',
-                'data' => $transaction
+                'data' => $this->transformTransaction($transaction)
             ]);
         } catch (\Exception $e) {
             return response()->json([
@@ -178,6 +187,47 @@ class TransactionController extends Controller
                 'message' => 'Failed to update transaction'
             ], 500);
         }
+    }
+
+    public function destroy(Request $request, $id)
+    {
+        $userId = $request->user()->id;
+
+        try {
+            $transaction = Transaction::where('user_id', $userId)->where('id', $id)->first();
+
+            if (!$transaction) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Transaction not found'
+                ], 404);
+            }
+
+            $transaction->delete();
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Transaction deleted successfully'
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to delete transaction'
+            ], 500);
+        }
+    }
+
+    // ✅ Helper untuk transformasi data
+    private function transformTransaction(Transaction $t)
+    {
+        return [
+            'id' => $t->id,
+            'type' => $t->type,
+            'category' => $t->category,
+            'amount' => (float)$t->amount,
+            'description' => $t->description,
+            'date' => $t->date,
+        ];
     }
 
     public function evaluation(Request $request)
@@ -207,15 +257,27 @@ class TransactionController extends Controller
             $savingPercentage = 0;
 
             if ($saving) {
-                $weeklySavings = DB::table('savings')
+                // Hitung konsistensi menabung berdasarkan tabel saving_logs
+                $savingLogs = DB::table('saving_logs')
                     ->where('user_id', $userId)
-                    ->where('month', $startDate->toDateString())
-                    ->whereRaw('saved_amount > 0')
-                    ->count();
+                    ->whereBetween('date', [$startDate, $endDate])
+                    ->get();
 
-                $savingConsistency = $weeklySavings;
-                $savingPercentage = $income > 0 ? ($saving->saved_amount / $income) * 100 : 0;
+                $weeks = [];
+
+                foreach ($savingLogs as $log) {
+                    $weekNumber = \Carbon\Carbon::parse($log->date)->weekOfMonth;
+                    $weeks[$weekNumber] = true; // hanya satu log per minggu dihitung
+                }
+
+                $savingConsistency = count($weeks);
+
+                // Hitung persentase tabungan dari pemasukan bulan ini
+                $savingPercentage = $income > 0
+                    ? ($saving->saved_amount / $income) * 100
+                    : 0;
             }
+
 
             $unexpectedExpense = Transaction::where('user_id', $userId)
                 ->where('type', 'expense')
@@ -274,34 +336,6 @@ class TransactionController extends Controller
                 'status' => 'error',
                 'message' => 'Failed to calculate evaluation metrics',
                 'error' => $e->getMessage()
-            ], 500);
-        }
-    }
-
-    public function destroy(Request $request, $id)
-    {
-        $userId = $request->user()->id;
-
-        try {
-            $transaction = Transaction::where('user_id', $userId)->find($id);
-
-            if (!$transaction) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Transaction not found'
-                ], 404);
-            }
-
-            $transaction->delete();
-
-            return response()->json([
-                'status' => 'success',
-                'message' => 'Transaction deleted successfully'
-            ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Failed to delete transaction'
             ], 500);
         }
     }

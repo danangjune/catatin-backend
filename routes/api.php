@@ -31,6 +31,7 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
         Route::get('/monthly', [SavingController::class, 'showByMonth']);
         Route::post('/', [SavingController::class, 'store']);
         Route::patch('/{id}', [SavingController::class, 'update']);
+        Route::get('/logs', [SavingController::class, 'logs']);
     });
 
     Route::get('/user/profile', [UserController::class, 'profile']);

@@ -4,7 +4,9 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Saving;
+use App\Models\SavingLog;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 
 class SavingController extends Controller
 {
@@ -29,6 +31,17 @@ class SavingController extends Controller
         $data['user_id'] = $request->user()->id;
 
         $saving = Saving::create($data);
+
+        // Jika ada tabungan awal, catat log juga
+        if ($data['saved_amount'] > 0) {
+            SavingLog::create([
+                'user_id' => $data['user_id'],
+                'saving_id' => $saving->id,
+                'date' => Carbon::parse($data['month'])->toDateString(),
+                'amount' => $data['saved_amount'],
+            ]);
+        }
+
         return response()->json($saving, 201);
     }
 
@@ -46,6 +59,17 @@ class SavingController extends Controller
         }
 
         return response()->json($saving);
+    }
+
+    public function logs(Request $request)
+    {
+        $userId = $request->user()->id;
+
+        $logs = SavingLog::where('user_id', $userId)
+            ->orderBy('date', 'desc')
+            ->get();
+
+        return response()->json($logs);
     }
 
     public function update(Request $request, $id)
@@ -68,6 +92,14 @@ class SavingController extends Controller
 
             if (isset($validated['add_amount'])) {
                 $saving->saved_amount += $validated['add_amount'];
+
+                // ⬇️ Tambahkan log setiap kali user menabung
+                SavingLog::create([
+                    'user_id' => $userId,
+                    'saving_id' => $saving->id,
+                    'date' => now()->toDateString(),
+                    'amount' => $validated['add_amount'],
+                ]);
             }
 
             $saving->save();
